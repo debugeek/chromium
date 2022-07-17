@@ -203,6 +203,10 @@ GRPC_SUPPORT_EXPORT
 // This method must be called after |start| has been called.
 + (void)setHostResolverRulesForTesting:(NSString*)hostResolverRulesForTesting;
 
+#if !CHROMIUM_ORIGINAL
++ (void)setHostResolvingBlock:(NSArray<NSString *> * (^)(NSString *hostname))block;
+#endif
+
 // Enables TestCertVerifier which accepts all certificates for testing.
 // This method only has any effect before |start| is called.
 + (void)enableTestCertVerifierForTesting;

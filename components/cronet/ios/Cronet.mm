@@ -482,6 +482,29 @@ class CronetHttpProtocolHandlerDelegate
       base::SysNSStringToUTF8(hostResolverRulesForTesting));
 }
 
+#if !CHROMIUM_ORIGINAL
+NSArray<NSString *> * (^g_hostResolvingBlock)(NSString *);
+static std::vector<std::string> host_resolving_callback(std::string hostname) {
+  std::vector<std::string> results;
+  if (g_hostResolvingBlock != nil) {
+    for (NSString *result in g_hostResolvingBlock(base::SysUTF8ToNSString(hostname))) {
+      results.push_back(base::SysNSStringToUTF8(result));
+    }
+  }
+  return results;
+}
++ (void)setHostResolvingBlock:(NSArray<NSString *> * (^)(NSString *hostname))block {
+  extern std::vector<std::string> (*g_host_resolving_callback) (std::string);
+  if (block != nil) {
+    g_hostResolvingBlock = block;
+    g_host_resolving_callback = &host_resolving_callback;
+  } else {
+    g_hostResolvingBlock = nil;
+    g_host_resolving_callback = nullptr;
+  }
+}
+#endif
+
 // This is a private dummy method that prevents the linker from stripping out
 // the otherwise unreferenced methods from 'bidirectional_stream.cc'.
 + (void)preventStrippingCronetBidirectionalStream {

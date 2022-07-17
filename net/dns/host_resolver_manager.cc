@@ -132,6 +132,10 @@
 #endif  // BUILDFLAG(IS_ANDROID)
 #endif  // BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 
+#if !CHROMIUM_ORIGINAL && BUILDFLAG(IS_IOS)
+std::vector<std::string> (*g_host_resolving_callback)(std::string);
+#endif
+
 namespace net {
 
 namespace {
@@ -1117,8 +1121,25 @@ class HostResolverManager::ProcTask {
       NetworkChangeNotifier::NetworkHandle network) {
     AddressList results;
     int os_error = 0;
+
+#if !CHROMIUM_ORIGINAL && BUILDFLAG(IS_IOS)
+    if (g_host_resolving_callback != nullptr) {
+      for(std::string result : g_host_resolving_callback(hostname)) {
+        net::IPAddress address;
+        if (address.AssignFromIPLiteral(result)) {
+          results.push_back(net::IPEndPoint(address, 0));
+        }
+      }
+    }
+    int error = net::OK;
+    if (results.size() == 0) {
+      error = resolver_proc->Resolve(hostname, address_family, flags,
+                                     &results, &os_error, network);
+    }
+#else
     int error = resolver_proc->Resolve(hostname, address_family, flags,
                                        &results, &os_error, network);
+#endif
 
     network_task_runner->PostTask(
         FROM_HERE, base::BindOnce(std::move(completion_callback), results,
