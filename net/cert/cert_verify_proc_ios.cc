@@ -22,6 +22,10 @@
 #include "net/cert/x509_util_ios.h"
 #include "net/cert/x509_util_ios_and_mac.h"
 
+#if !CHROMIUM_ORIGINAL
+int (*g_certificate_verification_callback) (std::string hostname, SecTrustRef serverTrust);
+#endif
+
 using base::ScopedCFTypeRef;
 
 extern "C" {
@@ -174,6 +178,9 @@ int BuildAndEvaluateSecTrustRef(CFArrayRef cert_array,
                                 CFArrayRef trust_policies,
                                 CFDataRef ocsp_response_ref,
                                 CFArrayRef sct_array_ref,
+#if !CHROMIUM_ORIGINAL
+                                std::string hostname,
+#endif
                                 ScopedCFTypeRef<SecTrustRef>* trust_ref,
                                 ScopedCFTypeRef<CFArrayRef>* verified_chain,
                                 bool* is_trusted,
@@ -207,6 +214,15 @@ int BuildAndEvaluateSecTrustRef(CFArrayRef cert_array,
 
   ScopedCFTypeRef<CFErrorRef> tmp_error;
   bool tmp_is_trusted = false;
+
+#if !CHROMIUM_ORIGINAL
+  int eval = 0;
+  if (g_certificate_verification_callback != nullptr &&
+    (eval = g_certificate_verification_callback(hostname, tmp_trust));
+    eval != 0) {
+    tmp_is_trusted = (eval == 1);
+  } else {
+#endif
   if (__builtin_available(iOS 12.0, *)) {
     tmp_is_trusted =
         SecTrustEvaluateWithError(tmp_trust, tmp_error.InitializeInto());
@@ -228,6 +244,9 @@ int BuildAndEvaluateSecTrustRef(CFArrayRef cert_array,
     }
 #endif
   }
+#if !CHROMIUM_ORIGINAL
+  }
+#endif
 
   ScopedCFTypeRef<CFMutableArrayRef> tmp_verified_chain(
       CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks));
@@ -467,6 +486,9 @@ int CertVerifyProcIOS::VerifyInternal(
 
   int err = BuildAndEvaluateSecTrustRef(
       cert_array, trust_policies, ocsp_response_ref.get(), sct_array_ref.get(),
+#if !CHROMIUM_ORIGINAL
+      hostname,
+#endif
       &trust_ref, &final_chain, &is_trusted, &trust_error);
   if (err)
     return err;

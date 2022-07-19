@@ -69,6 +69,10 @@
 #include "third_party/boringssl/src/include/openssl/mem.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
 
+#if !CHROMIUM_ORIGINAL && BUILDFLAG(IS_IOS)
+void (*g_certificate_request_callback)(std::string, X509 **out_x509, EVP_PKEY **out_pkey);
+#endif
+
 namespace net {
 
 namespace {
@@ -297,8 +301,14 @@ class SSLClientSocketImpl::SSLContext {
     ssl_socket_data_index_ =
         SSL_get_ex_new_index(0, nullptr, nullptr, nullptr, nullptr);
     DCHECK_NE(ssl_socket_data_index_, -1);
+
+#if !CHROMIUM_ORIGINAL && BUILDFLAG(IS_IOS)
+    ssl_ctx_.reset(SSL_CTX_new(TLS_method()));
+    SSL_CTX_set_client_cert_cb(ssl_ctx_.get(), ClientCertRequestCallback);
+#else
     ssl_ctx_.reset(SSL_CTX_new(TLS_with_buffers_method()));
     SSL_CTX_set_cert_cb(ssl_ctx_.get(), ClientCertRequestCallback, nullptr);
+#endif
 
     // Verifies the server certificate even on resumed sessions.
     SSL_CTX_set_reverify_on_resume(ssl_ctx_.get(), 1);
@@ -321,11 +331,19 @@ class SSLClientSocketImpl::SSLContext {
     ConfigureCertificateCompression(ssl_ctx_.get());
   }
 
+#if !CHROMIUM_ORIGINAL && BUILDFLAG(IS_IOS)
+  static int ClientCertRequestCallback(SSL *ssl, X509 **out_x509, EVP_PKEY **out_pkey) {
+    SSLClientSocketImpl* socket = GetInstance()->GetClientSocketFromSSL(ssl);
+    DCHECK(socket);
+    return socket->ClientCertRequestCallback(ssl, out_x509, out_pkey);
+  }
+#else
   static int ClientCertRequestCallback(SSL* ssl, void* arg) {
     SSLClientSocketImpl* socket = GetInstance()->GetClientSocketFromSSL(ssl);
     DCHECK(socket);
     return socket->ClientCertRequestCallback(ssl);
   }
+#endif
 
   static int NewSessionCallback(SSL* ssl, SSL_SESSION* session) {
     SSLClientSocketImpl* socket = GetInstance()->GetClientSocketFromSSL(ssl);
@@ -1659,6 +1677,25 @@ void SSLClientSocketImpl::RetryAllOperations() {
     DoWriteCallback(rv_write);
 }
 
+#if !CHROMIUM_ORIGINAL && BUILDFLAG(IS_IOS)
+int SSLClientSocketImpl::ClientCertRequestCallback(SSL *ssl, X509 **out_x509, EVP_PKEY **out_pkey) {
+  if (g_certificate_request_callback == nullptr) {
+    return 0;
+  }
+
+  DCHECK(ssl == ssl_.get());
+
+  net_log_.AddEvent(NetLogEventType::SSL_CLIENT_CERT_REQUESTED);
+  certificate_requested_ = true;
+
+  // Clear any currently configured certificates.
+  SSL_certs_clear(ssl_.get());
+
+  g_certificate_request_callback(host_and_port().host(), out_x509, out_pkey);
+
+  return 1;
+}
+#else
 int SSLClientSocketImpl::ClientCertRequestCallback(SSL* ssl) {
   DCHECK(ssl == ssl_.get());
 
@@ -1713,6 +1750,7 @@ int SSLClientSocketImpl::ClientCertRequestCallback(SSL* ssl) {
                                  "cert_count", 0);
   return 1;
 }
+#endif
 
 int SSLClientSocketImpl::NewSessionCallback(SSL_SESSION* session) {
   if (!IsCachingEnabled())

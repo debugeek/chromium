@@ -132,6 +132,15 @@ GRPC_SUPPORT_EXPORT
                  expirationDate:(NSDate*)expirationDate
                           error:(NSError**)outError;
 
+#if !CHROMIUM_ORIGINAL
+// Sets the block used to verify the server trust against the given hostname 
+// as an SSL server certificate.
++ (void)setCertificateVerificationBlock:(int (^)(NSString *hostname, SecTrustRef serverTrust))block;
+
+// Sets the block used to handle client certificate request.
++ (void)setCertificateRequestBlock:(NSURLCredential * (^)(NSString *hostname))block;
+#endif
+
 // Sets the block used to determine whether or not Cronet should handle the
 // request. If the block is not set, Cronet will handle all requests. Cronet
 // retains strong reference to the block, which can be released by calling this

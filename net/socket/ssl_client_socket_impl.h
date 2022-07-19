@@ -159,9 +159,13 @@ class SSLClientSocketImpl : public SSLClientSocket,
   ssl_verify_result_t HandleVerifyResult();
   int CheckCTCompliance();
 
+#if !CHROMIUM_ORIGINAL && BUILDFLAG(IS_IOS)
+  int ClientCertRequestCallback(SSL *ssl, X509 **out_x509, EVP_PKEY **out_pkey);
+#else
   // Callback from the SSL layer that indicates the remote server is requesting
   // a certificate for this client.
   int ClientCertRequestCallback(SSL* ssl);
+#endif
 
   // Called from the SSL layer whenever a new session is established.
   int NewSessionCallback(SSL_SESSION* session);

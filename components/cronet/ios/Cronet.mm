@@ -309,6 +309,77 @@ class CronetHttpProtocolHandlerDelegate
   gEnablePKPBypassForLocalTrustAnchors = enable;
 }
 
+#if !CHROMIUM_ORIGINAL
+int (^g_certificateVerificationBlock)(NSString *, SecTrustRef);
+static int certificate_verification_callback(std::string hostname, SecTrustRef serverTrust) {
+  if (g_certificateVerificationBlock == nil) {
+    return 0;
+  }
+  return g_certificateVerificationBlock(base::SysUTF8ToNSString(hostname), serverTrust);
+}
++ (void)setCertificateVerificationBlock:(int (^)(NSString *, SecTrustRef))block {
+  extern int (*g_certificate_verification_callback) (std::string, SecTrustRef);
+  if (block != nil) {
+    g_certificateVerificationBlock = block;
+    g_certificate_verification_callback = &certificate_verification_callback;
+  } else {
+    g_certificateVerificationBlock = nil;
+    g_certificate_verification_callback = nullptr;
+  }
+}
+
+NSURLCredential * (^g_certificateRequestBlock)(NSString *);
+static void certificate_request_callback(std::string hostname, X509 **out_x509, EVP_PKEY **out_pkey) {
+  if (g_certificateRequestBlock == nil) {
+    return;
+  }
+
+  NSURLCredential *credential = g_certificateRequestBlock([NSString stringWithCString:hostname.c_str() encoding:[NSString defaultCStringEncoding]]);
+  if (credential == nil) { 
+    return; 
+  }
+
+  SecCertificateRef cert = nullptr;
+  SecIdentityCopyCertificate(credential.identity, &cert);
+  if (cert == nullptr) {
+    return;
+  }
+
+  CFDataRef certData = SecCertificateCopyData(cert);
+  if (certData == nullptr) {
+    return;
+  }
+
+  const unsigned char *certBufPtr = CFDataGetBytePtr(certData);
+  *out_x509 = d2i_X509(nullptr, &certBufPtr, CFDataGetLength(certData));
+
+  SecKeyRef key = nullptr;
+  SecIdentityCopyPrivateKey(credential.identity, &key);
+  if (key == nullptr) {
+    return;
+  }
+
+  CFErrorRef error = nullptr;
+  CFDataRef keyData = SecKeyCopyExternalRepresentation(key, &error);
+  if (keyData == nullptr || error != nullptr) {
+    return;
+  }
+
+  const unsigned char *keyBufPtr = CFDataGetBytePtr(keyData);
+  *out_pkey = d2i_AutoPrivateKey(nullptr, &keyBufPtr, CFDataGetLength(keyData));
+}
++ (void)setCertificateRequestBlock:(NSURLCredential * (^)(NSString *hostname))block {
+  extern void (*g_certificate_request_callback)(std::string, X509 **out_x509, EVP_PKEY **out_pkey);
+  if (block != nil) {
+    g_certificateRequestBlock = block;
+    g_certificate_request_callback = &certificate_request_callback;
+  } else {
+    g_certificateRequestBlock = nil;
+    g_certificate_request_callback = nullptr;
+  }
+}
+#endif
+
 + (base::SingleThreadTaskRunner*)getFileThreadRunnerForTesting {
   return gChromeNet.Get()->GetFileThreadRunnerForTesting();
 }
